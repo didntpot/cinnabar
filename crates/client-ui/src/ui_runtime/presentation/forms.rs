@@ -45,6 +45,7 @@ pub mod menus;
 pub mod mod_hud;
 pub mod mod_hud_editor;
 pub mod mod_panel;
+pub mod mod_screens;
 pub mod mod_widgets;
 pub mod model;
 pub mod motion_blur_setting;
@@ -93,6 +94,7 @@ pub mod snapshot;
 pub mod start_feed;
 #[cfg(test)]
 mod store_tests;
+mod template_screen;
 #[cfg(test)]
 pub mod tests;
 pub mod textures;
@@ -105,9 +107,11 @@ pub use emote_screen::{EMOTE_EQUIP_POPUP, EMOTE_SCREEN, EmoteHit};
 pub use experience_modal::ExperienceModal;
 pub use loading_screen::{LOADING_SCREEN, LoadingStage};
 pub use menu_screens::menu_reference;
+pub use mod_screens::ModScreensInput;
 pub use npc::NPC_SCREEN;
 pub use oreui::BedHit;
 pub use sign_editor::SIGN_SCREEN;
+pub use template_screen::ModalEdits;
 
 use super::{TextMetrics, UiPresentationError, UiPresentationRuntime, dynamic_textures};
 use crate::ui_runtime::scene_stack::ScreenSettingsTable;
@@ -156,6 +160,8 @@ pub(super) struct FormPresentation {
     experience: Option<experience::ExperienceChrome>,
     /// A client part's modal screen; carried across the per-frame reset.
     experience_modal: Option<experience_modal::ModalScreen>,
+    /// A player mod's overlay and view; carried across the per-frame reset.
+    mod_screens: Option<mod_screens::ModScreens>,
     /// The last container screen's layout; carried across the per-frame reset.
     container_cache: Option<containers::ScreenCache>,
     /// Immutable creative rows reused across hover and scroll frames.
@@ -294,7 +300,8 @@ impl UiPresentationRuntime {
             .engine
             .as_mut()
             .is_some_and(|engine| engine.take_server_pages().is_some());
-        let changed = self.refresh_experience_modal_pages() | server;
+        let changed =
+            self.refresh_experience_modal_pages() | self.refresh_mod_screen_pages() | server;
         // Server textures too big for a server page draw from full-resolution art.
         let set = super::menu_artwork::ArtworkSet {
             paths: self.menu_artwork_set.paths.clone(),
@@ -504,6 +511,7 @@ impl UiPresentationRuntime {
             mod_panel: state.mod_panel,
             experience: state.experience,
             experience_modal: state.experience_modal,
+            mod_screens: state.mod_screens,
             container_cache: state.container_cache,
             book_cache: state.book_cache,
             furnace_cache: state.furnace_cache,
@@ -524,6 +532,9 @@ impl UiPresentationRuntime {
             previous_container,
             ..FormPresentation::default()
         };
+        if let Some(screens) = self.form_presentation.mod_screens.as_mut() {
+            screens.begin_frame();
+        }
     }
 
     /// Draws the open container's engine screen.
