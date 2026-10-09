@@ -231,3 +231,31 @@ fn beside_an_open_view_the_pointer_is_the_overlays() {
         Surface::Overlay
     );
 }
+
+#[test]
+fn view_bounds_follow_nested_clips_and_exclude_hidden_content() {
+    for size in [[160.0, 100.0], [800.0, 600.0]] {
+        let mut nodes = vec![
+            group(1, 0.0, 0.0, 400.0, 300.0),
+            group(2, 100.0, 50.0, 80.0, 60.0).renumbered(UiNodeId::new(2), Some(UiNodeId::new(1))),
+            group(3, 10.0, 5.0, 100.0, 50.0).renumbered(UiNodeId::new(3), Some(UiNodeId::new(2))),
+            leaf(4, 3, -30.0, -10.0, size[0], size[1]),
+            leaf(5, 2, 200.0, 0.0, 20.0, 20.0),
+        ];
+        for reversed in [false, true] {
+            if reversed {
+                nodes.reverse();
+            }
+            let bounds = drawn_bounds(&nodes, [400.0, 300.0], 2.0).unwrap();
+            assert_eq!(
+                [bounds.x, bounds.y, bounds.width, bounds.height],
+                [55.0, 27.5, 35.0, 25.0]
+            );
+        }
+    }
+    let hidden = [
+        group(1, 20.0, 10.0, 40.0, 30.0),
+        leaf(2, 1, 50.0, 0.0, 10.0, 10.0),
+    ];
+    assert!(drawn_bounds(&hidden, [400.0, 300.0], 1.0).is_none());
+}

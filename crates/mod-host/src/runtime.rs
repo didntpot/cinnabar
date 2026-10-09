@@ -357,6 +357,7 @@ impl Instance {
         state.environment_writes = 0;
         state.gameplay_reads = 0;
         state.camera_writes = 0;
+        state.controls.reset_budget();
         state.calls = 0;
         state.output = 0;
         state.pending_screens = None;

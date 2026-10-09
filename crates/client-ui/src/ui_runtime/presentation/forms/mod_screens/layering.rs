@@ -46,13 +46,7 @@ pub(super) fn gui_rect(
 /// The bounds of the visible nodes in `nodes`, in GUI units at `scale` logical pixels per unit,
 /// leaving out full-screen ones (a dimmed background) of a `content`-sized root.
 pub(super) fn drawn_bounds(nodes: &[UiNode], content: [f32; 2], scale: f32) -> Option<Rect> {
-    let origins: BTreeMap<UiNodeId, [f32; 2]> = nodes
-        .iter()
-        .map(|node| {
-            let min = node.bounds().min();
-            (node.id(), [min.x(), min.y()])
-        })
-        .collect();
+    let by_id: BTreeMap<UiNodeId, &UiNode> = nodes.iter().map(|node| (node.id(), node)).collect();
     let full_screen = |width: f32, height: f32| {
         f64::from(width) >= f64::from(content[0]) * FULL_SCREEN_SHARE
             && f64::from(height) >= f64::from(content[1]) * FULL_SCREEN_SHARE
@@ -60,21 +54,8 @@ pub(super) fn drawn_bounds(nodes: &[UiNode], content: [f32; 2], scale: f32) -> O
     let [left, top, right, bottom] = nodes
         .iter()
         .filter(|node| !matches!(node.visual(), UiVisual::None))
-        .filter(|node| !full_screen(node.bounds().width(), node.bounds().height()))
-        .map(|node| {
-            let origin = node
-                .parent()
-                .and_then(|parent| origins.get(&parent))
-                .copied()
-                .unwrap_or_default();
-            let bounds = node.bounds();
-            [
-                origin[0] + bounds.min().x(),
-                origin[1] + bounds.min().y(),
-                origin[0] + bounds.max().x(),
-                origin[1] + bounds.max().y(),
-            ]
-        })
+        .filter_map(|node| clipped_bounds(node, &by_id, content))
+        .filter(|[left, top, right, bottom]| !full_screen(right - left, bottom - top))
         .reduce(|a, b| {
             [
                 a[0].min(b[0]),
@@ -90,6 +71,46 @@ pub(super) fn drawn_bounds(nodes: &[UiNode], content: [f32; 2], scale: f32) -> O
         width: gui(right - left),
         height: gui(bottom - top),
     })
+}
+
+/// Translates a node through its ancestors and intersects every ancestor clip and the viewport.
+/// Missing parents, cycles, and completely clipped nodes have no visible bounds.
+fn clipped_bounds(
+    node: &UiNode,
+    nodes: &BTreeMap<UiNodeId, &UiNode>,
+    content: [f32; 2],
+) -> Option<[f32; 4]> {
+    let bounds = node.bounds();
+    let mut rect = [
+        bounds.min().x(),
+        bounds.min().y(),
+        bounds.max().x(),
+        bounds.max().y(),
+    ];
+    let mut parent = node.parent();
+    for _ in 0..=nodes.len() {
+        let Some(id) = parent else {
+            for axis in 0..2 {
+                rect[axis] = rect[axis].max(0.0);
+                rect[axis + 2] = rect[axis + 2].min(content[axis]);
+            }
+            return (rect[0] < rect[2] && rect[1] < rect[3]).then_some(rect);
+        };
+        let ancestor = nodes.get(&id)?;
+        let bounds = ancestor.bounds();
+        let min = [bounds.min().x(), bounds.min().y()];
+        let max = [bounds.max().x(), bounds.max().y()];
+        for axis in 0..2 {
+            rect[axis] += min[axis];
+            rect[axis + 2] += min[axis];
+            if ancestor.clips_children() {
+                rect[axis] = rect[axis].max(min[axis]);
+                rect[axis + 2] = rect[axis + 2].min(max[axis]);
+            }
+        }
+        parent = ancestor.parent();
+    }
+    None
 }
 
 /// Which of a mod's screens a pointer belongs to.
