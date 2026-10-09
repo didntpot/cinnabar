@@ -157,6 +157,10 @@ fn render_is_denied_by_default_even_with_other_grants() {
         entities: true,
         commands: vec!["ability".into()],
         packet_delay: true,
+        screen: true,
+        items: true,
+        recipes: true,
+        keys: true,
         block_highlights: false,
         fullbright: false,
     };

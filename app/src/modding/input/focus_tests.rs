@@ -103,6 +103,7 @@ fn unfocused_stop_and_toggle_keys_preserve_editor_and_do_not_replay_on_regain() 
             registration_request: None,
             suspended: false,
             hud_editor_owner: None,
+            screens: Default::default(),
         })
         .add_systems(Update, prepare_mod_input);
     let entity = app

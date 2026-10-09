@@ -7,7 +7,7 @@ use cinnabar::extension::{
 };
 
 fn state(grants: ModGrants) -> State {
-    State::new(grants, "{\"cps\":12}".into())
+    State::new(grants, "{\"cps\":12}".into(), Default::default())
 }
 
 fn panel() -> String {
