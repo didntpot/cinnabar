@@ -94,6 +94,14 @@ impl UiPresentationRuntime {
             .as_ref()
             .is_none_or(|current| !current.art.is(input.id, input.files))
         {
+            // Keep the last built container layout; this replacement has no drawn view yet.
+            let layout = slot
+                .as_ref()
+                .and_then(|current| current.layout.clone())
+                .map(|mut layout| {
+                    layout.view = None;
+                    layout
+                });
             *slot = Some(ModScreens {
                 art: TemplateArt::new(
                     input.id,
@@ -105,7 +113,7 @@ impl UiPresentationRuntime {
                 view: TemplateScreen::default(),
                 focus_applied: 0,
                 icon_keys: BTreeSet::new(),
-                layout: None,
+                layout,
             });
         }
         let screens = slot.as_mut().expect("mod screens installed");

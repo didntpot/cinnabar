@@ -100,6 +100,13 @@ pub(super) fn drive(
     }
     let owner = runtime.screen_owner();
     if owner != runtime.screens.owner {
+        if let Some(previous) = runtime.screens.owner
+            && let Err(error) = runtime
+                .host_mut(previous)
+                .dispatch(vec![ModEvent::ScreenChanged(None)])
+        {
+            eprintln!("Cinnabar departing mod screen closure failed: {error:#}");
+        }
         runtime.screens.owner = owner;
         runtime.screens.layout = None;
     }

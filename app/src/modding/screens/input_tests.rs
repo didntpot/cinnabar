@@ -407,7 +407,7 @@ fn a_replacements_owner_does_not_inherit_a_previous_packages_presentation_failur
             "{replacement}"
         );
         if replacement != "same" {
-            assert!(app.world().resource::<OwnerState>().0.layout.is_none());
+            assert!(app.world().resource::<OwnerState>().0.layout.is_some());
             assert!(
                 app.world()
                     .resource::<UiPresentationRuntime>()
@@ -416,4 +416,215 @@ fn a_replacements_owner_does_not_inherit_a_previous_packages_presentation_failur
             );
         }
     }
+}
+
+/// Builds and encodes the existing screen probe once in this worktree's test target.
+fn transition_probe_component() -> &'static [u8] {
+    static COMPONENT: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    COMPONENT.get_or_init(|| {
+        let target = std::env::current_exe()
+            .unwrap()
+            .ancestors()
+            .nth(3)
+            .unwrap()
+            .join("screen-transition-probe");
+        let output =
+            std::process::Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+                .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))
+                .args([
+                    "build",
+                    "--locked",
+                    "--target",
+                    "wasm32-unknown-unknown",
+                    "-p",
+                    "screen-probe-mod",
+                    "--target-dir",
+                ])
+                .arg(&target)
+                .output()
+                .unwrap();
+        assert!(
+            output.status.success(),
+            "screen probe build failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let module =
+            std::fs::read(target.join("wasm32-unknown-unknown/debug/screen_probe_mod.wasm"))
+                .unwrap();
+        wit_component::ComponentEncoder::default()
+            .module(&module)
+            .unwrap()
+            .validate(true)
+            .encode()
+            .unwrap()
+    })
+}
+
+/// Writes the existing probe package with hashes and a chosen version for reload tests.
+fn write_transition_probe(dir: &std::path::Path, version: &str) {
+    use sha2::{Digest, Sha256};
+    let source = std::path::Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../examples/mods/screen-probe"
+    ));
+    std::fs::create_dir_all(dir.join("ui")).unwrap();
+    let mut hashes = String::new();
+    for (path, bytes) in [
+        ("mod.wasm", transition_probe_component().to_vec()),
+        (
+            "ui/overlay.json",
+            std::fs::read(source.join("ui/overlay.json")).unwrap(),
+        ),
+        (VIEW, std::fs::read(source.join(VIEW)).unwrap()),
+    ] {
+        std::fs::write(dir.join(path), &bytes).unwrap();
+        let hash: String = Sha256::digest(&bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        hashes.push_str(&format!("\"{path}\" = \"{hash}\"\n"));
+    }
+    let manifest = std::fs::read_to_string(source.join(mod_host::package::MANIFEST))
+        .unwrap()
+        .lines()
+        .map(|line| {
+            if line.starts_with("version =") {
+                format!("version = \"{version}\"")
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(
+        dir.join(mod_host::package::MANIFEST),
+        format!("{manifest}\n{hashes}"),
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_package_reload_keeps_the_open_container_and_restored_view() {
+    let (mut app, _) = input_app();
+    let dir = tempfile::tempdir().unwrap();
+    write_transition_probe(dir.path(), "0.1.0");
+    let mut host = ModHost::load_package(dir.path(), mod_host::ModGrants::default()).unwrap();
+    let package = host.package().unwrap();
+    if !draw_package_view(&mut app, &package.id, &package.files) {
+        return;
+    }
+    let layout = app
+        .world()
+        .resource::<UiPresentationRuntime>()
+        .mod_screen_layout()
+        .cloned();
+    assert!(layout.is_some());
+    host.dispatch(vec![
+        ModEvent::ScreenChanged(layout.clone()),
+        ModEvent::Action {
+            id: "probe.view".into(),
+            index: None,
+        },
+    ])
+    .unwrap();
+    assert!(host.screens().view.is_some());
+    write_transition_probe(dir.path(), "0.1.1");
+    assert!(host.reload_if_changed().unwrap());
+    host.dispatch(vec![ModEvent::Action {
+        id: "probe.view".into(),
+        index: None,
+    }])
+    .unwrap();
+    app.insert_resource(Host(host));
+    app.insert_resource(OwnerState(ScreenState {
+        layout,
+        ..Default::default()
+    }));
+    app.add_systems(Update, exercise_owner);
+    app.update();
+    let host = &app.world().resource::<Host>().0;
+    assert!(
+        host.screens().view.is_some(),
+        "reload reported a container closure"
+    );
+    assert_eq!(
+        host.screens().data.values.get("#layout_open"),
+        Some(&server_experience::screen::Value::Bool(true))
+    );
+}
+
+/// Exercises ownership transitions through the production multi-mod adapter.
+fn exercise_runtime(
+    mut input: ScreenInput,
+    mut runtime: ResMut<ModRuntime>,
+    player: Res<crate::player_runtime::PlayerRuntime>,
+    ui: Res<UiRuntime>,
+    mut presentation: ResMut<UiPresentationRuntime>,
+) {
+    drive(
+        &mut runtime,
+        &player,
+        &ui,
+        &mut presentation,
+        None,
+        None,
+        false,
+        &mut input,
+    );
+}
+
+#[test]
+fn a_departing_screen_owner_closes_its_view_and_forgets_the_container() {
+    let (mut app, _) = input_app();
+    let dir = tempfile::tempdir().unwrap();
+    write_transition_probe(dir.path(), "0.1.0");
+    let first = ModHost::load_package(dir.path(), mod_host::ModGrants::default()).unwrap();
+    let mut previous = ModHost::load_package(dir.path(), mod_host::ModGrants::default()).unwrap();
+    let package = previous.package().unwrap();
+    if !draw_package_view(&mut app, &package.id, &package.files) {
+        return;
+    }
+    let layout = app
+        .world()
+        .resource::<UiPresentationRuntime>()
+        .mod_screen_layout()
+        .cloned();
+    previous
+        .dispatch(vec![
+            ModEvent::ScreenChanged(layout.clone()),
+            ModEvent::Action {
+                id: "probe.view".into(),
+                index: None,
+            },
+        ])
+        .unwrap();
+    assert!(previous.screens().view.is_some());
+    let mut configured = App::new();
+    super::super::install(&mut configured, vec![first, previous]);
+    let mut runtime = configured
+        .world_mut()
+        .remove_resource::<ModRuntime>()
+        .unwrap();
+    runtime.screens = ScreenState {
+        owner: Some(1),
+        layout,
+        ..Default::default()
+    };
+    app.insert_resource(runtime);
+    app.add_systems(Update, exercise_runtime);
+    app.update();
+    let runtime = app.world().resource::<ModRuntime>();
+    let previous = runtime.host(1);
+    assert!(
+        previous.screens().view.is_none(),
+        "departing owner retained its view"
+    );
+    assert_eq!(
+        previous.screens().data.values.get("#layout_open"),
+        Some(&server_experience::screen::Value::Bool(false))
+    );
+    assert_eq!(
+        previous.screens().data.values.get("#view_closed"),
+        Some(&server_experience::screen::Value::Integer(1))
+    );
 }
