@@ -451,3 +451,74 @@ fn recipe_derived_tag_changes_advance_the_item_revision() {
     );
     assert_eq!(cleared.item_revision, tagged.item_revision + 1);
 }
+
+#[test]
+fn cache_pins_source_identities_until_the_next_publication() {
+    let registry = registry();
+    let creative = creative();
+    let old_registry = Arc::downgrade(&registry);
+    let old_items = Arc::downgrade(&creative.items);
+    let old_groups = Arc::downgrade(&creative.groups);
+    let mut cache = SessionDataCache::default();
+    let data = cache.update(
+        SessionInputs {
+            creative: Some(&creative),
+            registry: Some(&registry),
+            catalog: None,
+            language: [0; 3],
+        },
+        &str::to_owned,
+    );
+    assert!(!data.items.is_empty());
+    drop(registry);
+    drop(creative);
+    assert!(
+        old_registry.upgrade().is_some(),
+        "registry identity must remain live"
+    );
+    assert!(
+        old_items.upgrade().is_some(),
+        "creative item identity must remain live"
+    );
+    assert!(
+        old_groups.upgrade().is_some(),
+        "creative group identity must remain live"
+    );
+    let empty = cache.update(
+        SessionInputs {
+            creative: None,
+            registry: None,
+            catalog: None,
+            language: [0; 3],
+        },
+        &str::to_owned,
+    );
+    assert!(empty.items.is_empty());
+    assert!(empty.item_revision > data.item_revision);
+    assert!(old_registry.upgrade().is_none());
+    assert!(old_items.upgrade().is_none());
+    assert!(old_groups.upgrade().is_none());
+}
+
+#[test]
+fn session_adapter_pins_the_language_identity_used_for_item_names() {
+    let text = b"item.stone.name=Server Stone";
+    let overlay = assets::ServerLangOverlay::read(text.len(), |out| {
+        out.copy_from_slice(text);
+        true
+    })
+    .unwrap();
+    let old = Arc::downgrade(&overlay);
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_server_lang(Some(overlay));
+    let player = player_state::PlayerState::new(1);
+    let mut cache = SessionDataCache::default();
+    session_data(&mut cache, &player, &runtime);
+    runtime.set_server_lang(None);
+    assert!(
+        old.upgrade().is_some(),
+        "language identity must remain live until the cache observes its replacement"
+    );
+    session_data(&mut cache, &player, &runtime);
+    assert!(old.upgrade().is_none());
+}

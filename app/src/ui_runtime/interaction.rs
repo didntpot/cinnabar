@@ -261,22 +261,14 @@ pub(crate) fn inventory_consumes_key(
     }
     !view
         && (binding_key(menu, "key.drop", key)
+            || crate::semantic_controls::keyboard_usage(key).is_some_and(|code| {
+                hotbar_control_slots(menu, semantic_input::PhysicalControl::KeyboardUsage(code))
+                    .next()
+                    .is_some()
+            })
             || matches!(
                 key,
-                KeyCode::KeyQ
-                    | KeyCode::Digit1
-                    | KeyCode::Digit2
-                    | KeyCode::Digit3
-                    | KeyCode::Digit4
-                    | KeyCode::Digit5
-                    | KeyCode::Digit6
-                    | KeyCode::Digit7
-                    | KeyCode::Digit8
-                    | KeyCode::Digit9
-                    | KeyCode::ArrowUp
-                    | KeyCode::ArrowDown
-                    | KeyCode::PageUp
-                    | KeyCode::PageDown
+                KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::PageUp | KeyCode::PageDown
             ))
 }
 

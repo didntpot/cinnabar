@@ -53,6 +53,15 @@ impl ModScreens {
         self.view.frame = None;
     }
 
+    /// Gives overlay controls the pointer ahead of the view's full-screen dismiss regions.
+    fn pointer_points(&self, point: Option<[f32; 2]>) -> (Option<[f32; 2]>, Option<[f32; 2]>) {
+        if point.is_some_and(|point| self.overlay.control_at(point).is_some()) {
+            (None, point)
+        } else {
+            (point, None)
+        }
+    }
+
     /// The screen under window-logical `point`; see [`layering::pointer_surface`].
     fn surface_at(&mut self, point: [f32; 2]) -> Option<&mut TemplateScreen> {
         let view_open = self.view.frame.is_some();
@@ -167,14 +176,14 @@ impl UiPresentationRuntime {
         layering::nearest_row(regions, layering::to_gui(frame, point))
     }
 
-    /// Lights the control under the pointer on the view or, beside it, the overlay; the
-    /// overlay's controls never meet the view's bounds, so each lights only its own.
+    /// Lights only the pointer's owning screen, with overlay controls ahead of dismiss hits.
     pub fn hover_mod_screens(&mut self, point: Option<[f32; 2]>) {
         let Some(screens) = self.form_presentation.mod_screens.as_mut() else {
             return;
         };
-        screens.view.hover(point);
-        screens.overlay.hover(point);
+        let (view, overlay) = screens.pointer_points(point);
+        screens.view.hover(view);
+        screens.overlay.hover(overlay);
     }
 
     /// Wheel `notches` (positive scrolls down) at window-logical `point`: a scroll view under it
@@ -196,8 +205,7 @@ impl UiPresentationRuntime {
         Some(gui)
     }
 
-    /// Tracks a left press on the view and the overlay beside it, whose controls never meet;
-    /// see [`TemplateScreen::press`].
+    /// Tracks a left press on its owning screen; see [`TemplateScreen::press`].
     pub fn press_mod_screens(
         &mut self,
         point: Option<[f32; 2]>,
@@ -205,8 +213,9 @@ impl UiPresentationRuntime {
         released: bool,
     ) -> Option<(String, Option<usize>)> {
         let screens = self.form_presentation.mod_screens.as_mut()?;
-        let view = screens.view.press(point, pressed, released);
-        let overlay = screens.overlay.press(point, pressed, released);
+        let (view, overlay) = screens.pointer_points(point);
+        let view = screens.view.press(view, pressed, released);
+        let overlay = screens.overlay.press(overlay, pressed, released);
         view.or(overlay)
     }
 
@@ -219,8 +228,9 @@ impl UiPresentationRuntime {
         released: bool,
     ) -> Option<(String, Option<usize>)> {
         let screens = self.form_presentation.mod_screens.as_mut()?;
-        let view = screens.view.secondary_press(point, pressed, released);
-        let overlay = screens.overlay.secondary_press(point, pressed, released);
+        let (view, overlay) = screens.pointer_points(point);
+        let view = screens.view.secondary_press(view, pressed, released);
+        let overlay = screens.overlay.secondary_press(overlay, pressed, released);
         view.or(overlay)
     }
 
@@ -238,8 +248,9 @@ impl UiPresentationRuntime {
         let Some(screens) = self.form_presentation.mod_screens.as_mut() else {
             return ModalEdits::default();
         };
-        let mut edits = screens.view.edit(point, pressed, typed, escape, now);
-        let overlay = screens.overlay.edit(point, pressed, typed, escape, now);
+        let (view, overlay) = screens.pointer_points(point);
+        let mut edits = screens.view.edit(view, pressed, typed, escape, now);
+        let overlay = screens.overlay.edit(overlay, pressed, typed, escape, now);
         edits.edits.extend(overlay.edits);
         edits.escape_consumed |= overlay.escape_consumed;
         edits
@@ -427,3 +438,6 @@ fn item_icons(
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests;

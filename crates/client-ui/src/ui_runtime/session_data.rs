@@ -59,6 +59,10 @@ pub struct SessionDataCache {
     items: Option<ItemSources>,
     recipes: Option<RecipeSources>,
     data: Arc<SessionData>,
+    // Pin every allocation whose address identifies the cached publication.
+    creative_source: Option<protocol::CreativeContentEvent>,
+    registry_source: Option<Arc<BTreeMap<i32, ItemRegistryEntry>>>,
+    language_source: super::Translator,
 }
 
 impl SessionDataCache {
@@ -117,6 +121,8 @@ impl SessionDataCache {
             data.items = items.into();
             data.tags = Arc::new(tags);
         }
+        self.creative_source = inputs.creative.cloned();
+        self.registry_source = inputs.registry.cloned();
         self.items = Some(items);
         self.recipes = Some(recipes);
         self.data = Arc::new(data);
@@ -137,9 +143,11 @@ pub fn session_data(
         catalog: player_runtime.inventory.screen_catalog(),
         language: runtime.text_generation(),
     };
-    cache.update(inputs, &|identifier| {
+    let data = cache.update(inputs, &|identifier| {
         runtime.localized_item_name(identifier)
-    })
+    });
+    cache.language_source = runtime.translator();
+    data
 }
 
 /// A wire stack as the session names it, as a player mod's key reports the hovered slot; `None`
