@@ -145,6 +145,9 @@ fn drive_owner(
         return;
     };
     let keys = package.keys.clone();
+    if !presentation.mod_screens_match(&package.id, &package.files) {
+        publish(host, presentation);
+    }
     if let Some(reason) = presentation.mod_screens_failure() {
         eprintln!("Cinnabar mod screens refused, mod quarantined: {reason}");
         host.quarantine();

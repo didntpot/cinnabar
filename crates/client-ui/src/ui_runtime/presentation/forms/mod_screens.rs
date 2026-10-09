@@ -127,6 +127,14 @@ impl UiPresentationRuntime {
         self.form_presentation.mod_screens.as_ref()?.layout.as_ref()
     }
 
+    /// Whether the retained presentation belongs to this package snapshot.
+    pub fn mod_screens_match(&self, id: &str, files: &Arc<screen::Files>) -> bool {
+        self.form_presentation
+            .mod_screens
+            .as_ref()
+            .is_some_and(|screens| screens.art.is(id, files))
+    }
+
     /// Why the mod's templates were refused, which quarantines the mod.
     pub fn mod_screens_failure(&self) -> Option<&str> {
         self.form_presentation.mod_screens.as_ref()?.art.failure()
@@ -176,14 +184,18 @@ impl UiPresentationRuntime {
         layering::nearest_row(regions, layering::to_gui(frame, point))
     }
 
-    /// Lights only the pointer's owning screen, with overlay controls ahead of dismiss hits.
+    /// Routes hover and wheel positions to the drawn surface under the pointer.
     pub fn hover_mod_screens(&mut self, point: Option<[f32; 2]>) {
         let Some(screens) = self.form_presentation.mod_screens.as_mut() else {
             return;
         };
-        let (view, overlay) = screens.pointer_points(point);
-        screens.view.hover(view);
-        screens.overlay.hover(overlay);
+        screens.view.hover(None);
+        screens.overlay.hover(None);
+        if let Some(point) = point
+            && let Some(screen) = screens.surface_at(point)
+        {
+            screen.hover(Some(point));
+        }
     }
 
     /// Wheel `notches` (positive scrolls down) at window-logical `point`: a scroll view under it

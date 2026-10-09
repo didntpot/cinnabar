@@ -15,6 +15,7 @@ use client_ui::test_support::{fixture_font, inventory_session};
 const MOD_ID: &str = "input_test";
 const VIEW: &str = "ui/view.json";
 const ACTION: &str = "input_test.show";
+const EMPTY_COMPONENT: &str = r#"(component (core module $m (func (export "init")) (func (export "frame"))) (core instance $i (instantiate $m)) (func (export "init") (canon lift (core func $i "init"))) (func (export "frame") (canon lift (core func $i "frame"))))"#;
 
 #[derive(Resource, Default)]
 struct Observed {
@@ -153,6 +154,28 @@ fn mod_modifiers_survive_inventory_suppression_and_release_independently() {
 
 /// Draws an original mod view over the inventory using the installed UI fixture.
 fn draw_view(app: &mut App) -> bool {
+    let files = Arc::new(server_experience::screen::Files {
+        namespace: MOD_ID.into(),
+        templates: [(VIEW.into(), serde_json::to_vec(&serde_json::json!({"namespace":MOD_ID,"view":{"type":"panel","size":[100,80],"controls":[{"title":{"type":"label","text":"View"}}]}})).unwrap())].into(),
+        textures: Vec::new(),
+    });
+    if !draw_package_view(app, MOD_ID, &files) {
+        return false;
+    }
+    assert!(
+        app.world()
+            .resource::<UiPresentationRuntime>()
+            .mod_view_shown()
+    );
+    true
+}
+
+/// Draws a package snapshot over the inventory using the installed UI fixture.
+fn draw_package_view(
+    app: &mut App,
+    id: &str,
+    files: &Arc<server_experience::screen::Files>,
+) -> bool {
     let Some(mut presentation) = client_ui::test_support::engine_presentation() else {
         eprintln!(
             "skipping {}: missing installed UI carrier (make assets)",
@@ -162,15 +185,10 @@ fn draw_view(app: &mut App) -> bool {
         );
         return false;
     };
-    let files = Arc::new(server_experience::screen::Files {
-        namespace: MOD_ID.into(),
-        templates: [(VIEW.into(), serde_json::to_vec(&serde_json::json!({"namespace":MOD_ID,"view":{"type":"panel","size":[100,80],"controls":[{"title":{"type":"label","text":"View"}}]}})).unwrap())].into(),
-        textures: Vec::new(),
-    });
     let view = VIEW.to_owned();
     presentation.set_mod_screens(Some(ModScreensInput {
-        id: MOD_ID,
-        files: &files,
+        id,
+        files,
         overlay: None,
         view: Some(&view),
         focus: None,
@@ -186,7 +204,6 @@ fn draw_view(app: &mut App) -> bool {
             ui::DpiScale::new(1.0).unwrap(),
         )
         .unwrap();
-    assert!(presentation.mod_view_shown());
     app.insert_resource(presentation);
     true
 }
@@ -263,7 +280,7 @@ fn a_shown_mod_view_releases_declared_keys_from_hidden_vanilla_text_focus() {
         .search_focused = true;
     let dir = tempfile::tempdir().unwrap();
     let component = dir.path().join("empty.wat");
-    std::fs::write(&component, r#"(component (core module $m (func (export "init")) (func (export "frame"))) (core instance $i (instantiate $m)) (func (export "init") (canon lift (core func $i "init"))) (func (export "frame") (canon lift (core func $i "frame"))))"#).unwrap();
+    std::fs::write(&component, EMPTY_COMPONENT).unwrap();
     app.insert_resource(Host(ModHost::load(&component).unwrap()));
     app.add_systems(Update, (drive_chat_keyboard_input, observe_keys).chain());
     send(&mut app, window, KeyCode::KeyR, ButtonState::Pressed, None);
@@ -291,4 +308,112 @@ fn a_shown_mod_view_releases_declared_keys_from_hidden_vanilla_text_focus() {
         app.world().resource::<UiRuntime>().screen_state().search,
         "r"
     );
+}
+
+#[derive(Resource, Default)]
+struct OwnerState(ScreenState);
+
+/// Runs the real owner's adapter with no focused pointer or keyboard input.
+fn exercise_owner(
+    mut input: ScreenInput,
+    mut host: ResMut<Host>,
+    mut state: ResMut<OwnerState>,
+    player: Res<crate::player_runtime::PlayerRuntime>,
+    ui: Res<UiRuntime>,
+    mut presentation: ResMut<UiPresentationRuntime>,
+) {
+    drive_owner(
+        &mut host.0,
+        &mut state.0,
+        &player,
+        &ui,
+        &mut presentation,
+        None,
+        None,
+        false,
+        &mut input,
+    );
+}
+
+/// Writes a hash-checked empty component with an original valid or unresolvable template.
+fn write_screen_package(dir: &std::path::Path, id: &str, rejected: bool) {
+    use sha2::{Digest, Sha256};
+    std::fs::create_dir_all(dir.join("ui")).unwrap();
+    let root = if rejected {
+        "view@absent_fixture.panel"
+    } else {
+        "view"
+    };
+    let template = serde_json::to_vec(
+        &serde_json::json!({"namespace":id, root:{"type":"panel","size":[100,80]}}),
+    )
+    .unwrap();
+    let files = [
+        ("mod.wasm", EMPTY_COMPONENT.as_bytes()),
+        (VIEW, template.as_slice()),
+    ];
+    let mut hashes = String::new();
+    for (path, bytes) in files {
+        std::fs::write(dir.join(path), bytes).unwrap();
+        let hash: String = Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        hashes.push_str(&format!("\"{path}\" = \"{hash}\"\n"));
+    }
+    let api = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../examples/mods/screen-probe/mod.toml"
+    ))
+    .lines()
+    .find(|line| line.starts_with("api ="))
+    .unwrap();
+    std::fs::write(dir.join(mod_host::package::MANIFEST), format!("id = \"{id}\"\nversion = \"0.1.0\"\n{api}\npermissions = [\"screen\"]\ntemplates = [\"{VIEW}\"]\n[files]\n{hashes}")).unwrap();
+}
+
+#[test]
+fn a_replacements_owner_does_not_inherit_a_previous_packages_presentation_failure() {
+    for replacement in ["reload", "owner", "same"] {
+        let (mut app, _) = input_app();
+        let dir = tempfile::tempdir().unwrap();
+        write_screen_package(dir.path(), MOD_ID, true);
+        let mut host = ModHost::load_package(dir.path(), mod_host::ModGrants::default()).unwrap();
+        let files = Arc::clone(&host.package().unwrap().files);
+        if !draw_package_view(&mut app, MOD_ID, &files) {
+            return;
+        }
+        let presentation = app.world().resource::<UiPresentationRuntime>();
+        assert!(presentation.mod_screens_failure().is_some());
+        let layout = presentation.mod_screen_layout().cloned();
+        assert!(layout.is_some());
+        if replacement == "reload" {
+            write_screen_package(dir.path(), MOD_ID, false);
+            assert!(host.reload_if_changed().unwrap());
+        } else if replacement == "owner" {
+            let next = dir.path().join("replacement");
+            write_screen_package(&next, "replacement", false);
+            host = ModHost::load_package(&next, mod_host::ModGrants::default()).unwrap();
+        }
+        app.insert_resource(Host(host));
+        app.insert_resource(OwnerState(ScreenState {
+            layout,
+            ..Default::default()
+        }));
+        app.add_systems(Update, exercise_owner);
+        app.update();
+        assert_eq!(
+            app.world().resource::<Host>().0.is_active(),
+            replacement != "same",
+            "{replacement}"
+        );
+        if replacement != "same" {
+            assert!(app.world().resource::<OwnerState>().0.layout.is_none());
+            assert!(
+                app.world()
+                    .resource::<UiPresentationRuntime>()
+                    .mod_screens_failure()
+                    .is_none()
+            );
+        }
+    }
 }

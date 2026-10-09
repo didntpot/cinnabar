@@ -151,3 +151,31 @@ fn overlay_primary_and_secondary_clicks_win_over_full_screen_dismiss_hits() {
         );
     }
 }
+
+#[test]
+fn overlay_wheel_scrolls_blank_viewports_with_and_without_an_open_view() {
+    for view_open in [false, true] {
+        let mut presentation = overlapping_screens();
+        let screens = presentation.form_presentation.mod_screens.as_mut().unwrap();
+        if !view_open {
+            screens.view.frame = None;
+            screens.layout.as_mut().unwrap().view = None;
+        }
+        let frame = screens.overlay.frame.as_mut().unwrap();
+        frame.hits = Arc::from([]);
+        frame.report.scrolls.insert(
+            "rows".into(),
+            json_ui::ScrollMetrics {
+                content: 100.0,
+                viewport: 20.0,
+                viewport_rect: Some([0.0, 0.0, 20.0, 20.0]),
+                speed: 10.0,
+                ..Default::default()
+            },
+        );
+        presentation.hover_mod_screens(Some([5.0, 5.0]));
+        assert_eq!(presentation.scroll_mod_screens([5.0, 5.0], 1.0), None);
+        let screens = presentation.form_presentation.mod_screens.as_ref().unwrap();
+        assert_eq!(screens.overlay.view.scroll.get("rows"), Some(&10.0));
+    }
+}
