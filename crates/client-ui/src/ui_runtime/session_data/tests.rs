@@ -398,3 +398,56 @@ fn a_hovered_stack_reads_as_its_session_stack() {
         None
     );
 }
+
+#[test]
+fn recipe_derived_tag_changes_advance_the_item_revision() {
+    let mut untagged = (*registry()).clone();
+    untagged.insert(2, entry(2, "minecraft:oak_planks", &[]));
+    let registry = Arc::new(untagged);
+    let creative = creative();
+    let mut cache = SessionDataCache::default();
+    let mut publish = |catalog: &RecipeCatalog| {
+        cache.update(
+            SessionInputs {
+                creative: Some(&creative),
+                registry: Some(&registry),
+                catalog: Some(catalog),
+                language: [0; 3],
+            },
+            &name,
+        )
+    };
+    let mut recipes = RecipeCatalog::default();
+    recipes.begin_session(1);
+    let empty = publish(&recipes);
+    assert!(empty.tag_members("minecraft:planks").is_empty());
+    recipes = catalog();
+    let tagged = publish(&recipes);
+    assert_eq!(
+        tagged.tag_members("minecraft:planks"),
+        ["minecraft:oak_planks"]
+    );
+    assert_eq!(tagged.item_revision, empty.item_revision + 1);
+    assert_eq!(
+        tagged.lookup(&key("minecraft:oak_planks", 0)).unwrap().tags,
+        ["minecraft:planks"]
+    );
+    let packet = CraftingDataPacket {
+        clear_recipes: true,
+        ..Default::default()
+    };
+    let mut bytes = Vec::new();
+    packet.encode(&mut bytes).unwrap();
+    let update = ::protocol::decode_recipe_update(&bytes).unwrap();
+    assert!(recipes.apply(1, 2, &update));
+    let cleared = publish(&recipes);
+    assert!(cleared.tag_members("minecraft:planks").is_empty());
+    assert!(
+        cleared
+            .lookup(&key("minecraft:oak_planks", 0))
+            .unwrap()
+            .tags
+            .is_empty()
+    );
+    assert_eq!(cleared.item_revision, tagged.item_revision + 1);
+}

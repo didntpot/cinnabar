@@ -325,6 +325,9 @@ fn drive_mod(
     mut outputs: ModOutputs,
     mut screen_input: screens::ScreenInput,
 ) {
+    let focused = windows.single().is_ok_and(|(window, _)| window.focused);
+    let menu_open = menu.as_deref().is_some_and(MenuRuntime::is_visible);
+    screen_input.modifiers(focused && !menu_open);
     let (Some(mut extension), Some(mut time_override), Some(mut interaction)) =
         (extension, time_override, interaction)
     else {
@@ -355,7 +358,6 @@ fn drive_mod(
             }
         }
     }
-    let focused = windows.single().is_ok_and(|(window, _)| window.focused);
     let absorbed = crate::screen_policy::absorbs_input(
         &player_runtime,
         Some(&ui),
@@ -454,7 +456,6 @@ fn drive_mod(
         .ok()
         .and_then(|(window, _)| window.cursor_position())
         .map(|point| point.to_array());
-    let menu_open = menu.as_deref().is_some_and(MenuRuntime::is_visible);
     screens::drive(
         &mut extension,
         &player_runtime,

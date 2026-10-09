@@ -36,12 +36,11 @@ impl ModHost {
     /// developer profile of a package selected on its own.
     pub fn load_package(dir: &Path, extra: ModGrants) -> Result<Self> {
         let package = Package::read(dir)?;
-        let asked = ModGrants::from_manifest(&package.manifest);
         let grants = ModGrants {
-            screen: asked.screen,
-            items: asked.items,
-            recipes: asked.recipes,
-            keys: asked.keys,
+            screen: true,
+            items: true,
+            recipes: true,
+            keys: true,
             ..extra
         };
         Self::load_read_package(dir, package, grants)
@@ -51,19 +50,14 @@ impl ModHost {
     /// `grants`.
     pub fn load_package_with_grants(dir: &Path, grants: ModGrants) -> Result<Self> {
         let package = Package::read(dir)?;
-        let asked = ModGrants::from_manifest(&package.manifest);
-        let grants = ModGrants {
-            screen: asked.screen && grants.screen,
-            items: asked.items && grants.items,
-            recipes: asked.recipes && grants.recipes,
-            keys: asked.keys && grants.keys,
-            ..grants
-        };
         Self::load_read_package(dir, package, grants)
     }
 
+    /// Loads a verified package under the loader's original authorization policy.
     fn load_read_package(dir: &Path, package: Package, grants: ModGrants) -> Result<Self> {
         let source = Source::Package(dir.to_owned());
+        let authorized_grants = grants;
+        let grants = authorized_grants.with_manifest(&package.manifest);
         let declared = declared(&package);
         let mut host = Self::prepare(
             source,
@@ -74,6 +68,7 @@ impl ModHost {
             package.digest,
         )?;
         host.package = Some(loaded(package));
+        host.authorized_grants = authorized_grants;
         host.activate_settings(None);
         Ok(host)
     }
@@ -142,6 +137,7 @@ impl ModHost {
             instance,
             source,
             attempted: digest,
+            authorized_grants: grants.clone(),
             grants,
             settings_writer,
             settings_seed,
@@ -189,16 +185,21 @@ impl ModHost {
             Some(package) => (&package.component, declared(package)),
             None => (&bytes, Declared::default()),
         };
+        let grants = package.as_ref().map_or_else(
+            || self.grants.clone(),
+            |package| self.authorized_grants.with_manifest(&package.manifest),
+        );
         let mut candidate = Instance::new(
             &self.engine,
             bytes,
-            self.grants.clone(),
+            grants.clone(),
             self.instance.settings().to_owned(),
             declared,
         )
         .context("reload rejected; previous mod retained")?;
         candidate.set_session(Arc::clone(&self.session));
         self.instance = candidate;
+        self.grants = grants;
         if let Some(package) = package {
             self.package = Some(loaded(package));
         }
@@ -242,6 +243,18 @@ impl Source {
 }
 
 impl ModGrants {
+    /// Applies the manifest's requests without extending the loader's authorization.
+    fn with_manifest(&self, manifest: &ModManifest) -> Self {
+        let asked = Self::from_manifest(manifest);
+        Self {
+            screen: asked.screen && self.screen,
+            items: asked.items && self.items,
+            recipes: asked.recipes && self.recipes,
+            keys: asked.keys && self.keys,
+            ..self.clone()
+        }
+    }
+
     /// What a package's manifest asks for, except `inventory`, which no import carries yet.
     pub fn from_manifest(manifest: &ModManifest) -> Self {
         let asks = |permission| manifest.permissions.contains(&permission);

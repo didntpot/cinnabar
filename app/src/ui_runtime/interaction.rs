@@ -1,6 +1,6 @@
 mod chat;
 mod chat_coordinates;
-mod chat_modifiers;
+pub(crate) mod chat_modifiers;
 pub(crate) use chat::drive_chat_ui_actions;
 
 use bevy::{
@@ -590,7 +590,8 @@ pub(crate) fn drive_chat_keyboard_input(
     let mod_view = presentation
         .as_deref()
         .is_some_and(UiPresentationRuntime::mod_view_shown);
-    if !runtime.chat_focused() && !runtime.screen_state().text_focused() && !mod_text {
+    if !runtime.chat_focused() && (!runtime.screen_state().text_focused() || mod_view) && !mod_text
+    {
         if binding_mouse(menu.as_deref(), "key.inventory", &mouse_buttons)
             || binding_gamepad(menu.as_deref(), "key.inventory", &gamepads)
         {
@@ -643,7 +644,7 @@ pub(crate) fn drive_chat_keyboard_input(
                 // A player mod's edit box takes typing and Escape (`modding`).
                 continue;
             }
-            if runtime.screen_state().text_focused() {
+            if runtime.screen_state().text_focused() && !mod_view {
                 // A text field owns typed text, including `e`.
                 match input.key_code {
                     KeyCode::Escape => {

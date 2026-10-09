@@ -39,7 +39,31 @@ pub(super) struct ScreenInput<'w, 's> {
     buttons: MessageReader<'w, 's, MouseButtonInput>,
     wheel: MessageReader<'w, 's, MouseWheel>,
     keys: Res<'w, ButtonInput<KeyCode>>,
+    modifier_events: MessageReader<'w, 's, KeyboardInput>,
+    modifier_state: Local<'s, ButtonInput<KeyCode>>,
     time: Option<Res<'w, Time<Real>>>,
+}
+
+impl ScreenInput<'_, '_> {
+    /// Retains physical modifiers across gameplay resets and clears them on focus loss.
+    pub(super) fn modifiers(&mut self, focused: bool) -> KeyModifiers {
+        if !focused {
+            self.modifier_state.reset_all();
+            self.modifier_events.clear();
+            return KeyModifiers::default();
+        }
+        let modifiers = &mut *self.modifier_state;
+        crate::ui_runtime::interaction::chat_modifiers::capture(modifiers, &self.keys);
+        for event in self.modifier_events.read() {
+            crate::ui_runtime::interaction::chat_modifiers::track(modifiers, event);
+        }
+        let held = |left, right| modifiers.pressed(left) || modifiers.pressed(right);
+        KeyModifiers {
+            ctrl: held(KeyCode::ControlLeft, KeyCode::ControlRight),
+            shift: held(KeyCode::ShiftLeft, KeyCode::ShiftRight),
+            alt: held(KeyCode::AltLeft, KeyCode::AltRight),
+        }
+    }
 }
 
 /// One frame of the packages' screens: deliver the session data to every package and this
@@ -135,12 +159,7 @@ fn drive_owner(
     }
     let up = state.layout.is_some();
     if up && focused {
-        let held = |left, right| input.keys.pressed(left) || input.keys.pressed(right);
-        let modifiers = KeyModifiers {
-            ctrl: held(KeyCode::ControlLeft, KeyCode::ControlRight),
-            shift: held(KeyCode::ShiftLeft, KeyCode::ShiftRight),
-            alt: held(KeyCode::AltLeft, KeyCode::AltRight),
-        };
+        let modifiers = input.modifiers(true);
         let pressed = pointer_events(presentation, cursor, modifiers, input, &mut events);
         let frame = KeyFrame {
             keys: &keys,
@@ -290,7 +309,7 @@ fn key_events(
     {
         eprintln!("Cinnabar mod view-closed failed: {error:#}");
     }
-    if text_focused || ui.screen_state().text_focused() {
+    if text_focused || (!view && ui.screen_state().text_focused()) {
         return;
     }
     for (key, _) in &presses {
@@ -416,6 +435,10 @@ fn publish(host: &ModHost, presentation: &mut UiPresentationRuntime) {
         data: &screens.data,
     }));
 }
+
+#[cfg(test)]
+#[path = "screens/input_tests.rs"]
+mod input_tests;
 
 #[cfg(test)]
 mod tests {

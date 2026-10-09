@@ -52,8 +52,8 @@ struct RecipeSources {
     registry: Option<usize>,
 }
 
-/// The last built session data, rebuilt only when a source changed. Each half's revision is
-/// this cache's own counter, bumped exactly when that half was rebuilt.
+/// The last built session data, rebuilt only when a source changed. A half's revision advances
+/// when its source is resent or its published data changes.
 #[derive(Default)]
 pub struct SessionDataCache {
     items: Option<ItemSources>,
@@ -108,11 +108,14 @@ impl SessionDataCache {
                 bevy::log::debug!(skipped, "session items skipped: unresolved or odd stacks");
             }
             let (items, tags) = with_tags(items, &data.recipes, registry);
-            data.items = items.into();
-            data.tags = Arc::new(tags);
-            if items_changed {
+            if items_changed
+                || data.items.as_ref() != items.as_slice()
+                || data.tags.as_ref() != &tags
+            {
                 data.item_revision += 1;
             }
+            data.items = items.into();
+            data.tags = Arc::new(tags);
         }
         self.items = Some(items);
         self.recipes = Some(recipes);

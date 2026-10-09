@@ -503,7 +503,9 @@ namespace. A build script calls `experience_sdk::declarations::generate_mod("mod
 `templates::*` and `keys::*` with `experience_sdk::include_declarations!()`.
 `CINNABAR_MOD_PACKAGE` grants what the manifest asks for, plus the environment opt-ins a bare
 component gets; in a set, each package permission needs both the manifest's ask and the entry's
-grant (`screen`, `items`, `recipes`, `keys`). `inventory` has no import yet.
+grant (`screen`, `items`, `recipes`, `keys`). `inventory` has no import yet. On reload, the new
+manifest narrows the original loader authorization again; an entry cannot gain an ungranted
+permission by changing its manifest.
 
 **Screens.** `screen.set-overlay(template)` draws one template beside every container screen.
 It is laid out over the whole root after the container screen. The host drops every node and

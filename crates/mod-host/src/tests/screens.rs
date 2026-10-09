@@ -582,3 +582,52 @@ fn data_changed_names_what_changed() {
     host.set_session(Arc::new(recipes_only)).unwrap();
     assert_eq!(text(&host, "#data_sources"), "recipes");
 }
+
+#[test]
+fn package_reload_rechecks_manifest_permissions_and_preserves_loader_policy() {
+    for selected_alone in [true, false] {
+        let dir = tempfile::tempdir().unwrap();
+        write_probe(dir.path(), str::to_owned);
+        let grants = ModGrants {
+            screen: true,
+            recipes: true,
+            keys: true,
+            ..ModGrants::default()
+        };
+        let mut host = if selected_alone {
+            ModHost::load_package(dir.path(), ModGrants::default()).unwrap()
+        } else {
+            ModHost::load_package_with_grants(dir.path(), grants).unwrap()
+        };
+        assert_eq!(host.grants().items, selected_alone);
+        write_probe(dir.path(), |manifest| {
+            manifest.replace("permissions = [", "permissions = [] # [")
+        });
+        assert!(host.reload_if_changed().unwrap());
+        assert!(
+            !host.grants().screen
+                && !host.grants().items
+                && !host.grants().recipes
+                && !host.grants().keys
+        );
+        assert!(host.screens().overlay.is_none());
+        assert!(
+            host.dispatch(vec![ModEvent::Key {
+                id: "probe.show".into(),
+                hovered: None,
+                row: None
+            }])
+            .is_err()
+        );
+        write_probe(dir.path(), str::to_owned);
+        assert!(host.reload_if_changed().unwrap());
+        assert!(host.grants().screen && host.grants().recipes && host.grants().keys);
+        assert_eq!(host.grants().items, selected_alone);
+        host.set_session(session(5, 1)).unwrap();
+        if selected_alone {
+            assert_eq!(value(&host, "#items"), Some(&Value::Integer(5)));
+        } else {
+            assert!(text(&host, "#items_error").contains("denied"));
+        }
+    }
+}

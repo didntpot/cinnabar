@@ -1,4 +1,4 @@
-//! Physical modifiers survive the gameplay-button reset while chat owns input.
+//! Physical modifiers survive gameplay-button resets while chat or mod screens own input.
 use super::*;
 
 const MODIFIERS: [KeyCode; 8] = [
@@ -12,7 +12,8 @@ const MODIFIERS: [KeyCode; 8] = [
     KeyCode::ShiftRight,
 ];
 
-pub(super) fn capture(held: &mut ButtonInput<KeyCode>, gameplay: &ButtonInput<KeyCode>) {
+/// Seeds held modifiers from physical buttons before gameplay suppression.
+pub(crate) fn capture(held: &mut ButtonInput<KeyCode>, gameplay: &ButtonInput<KeyCode>) {
     for key in MODIFIERS {
         if gameplay.pressed(key) {
             held.press(key);
@@ -20,7 +21,8 @@ pub(super) fn capture(held: &mut ButtonInput<KeyCode>, gameplay: &ButtonInput<Ke
     }
 }
 
-pub(super) fn track(held: &mut ButtonInput<KeyCode>, input: &KeyboardInput) {
+/// Applies one physical modifier edge, retaining the other side independently.
+pub(crate) fn track(held: &mut ButtonInput<KeyCode>, input: &KeyboardInput) {
     if !MODIFIERS.contains(&input.key_code) {
         return;
     }

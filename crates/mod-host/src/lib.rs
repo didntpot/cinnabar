@@ -95,6 +95,8 @@ pub struct ModHost {
     source: Source,
     attempted: [u8; 32],
     grants: ModGrants,
+    /// The loader's authorization before the manifest narrows package permissions.
+    authorized_grants: ModGrants,
     settings_writer: Option<settings::SettingsWriter>,
     settings_seed: Option<String>,
     package: Option<LoadedPackage>,
