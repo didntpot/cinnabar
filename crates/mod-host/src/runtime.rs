@@ -40,9 +40,9 @@ mod gameplay;
 mod hud;
 #[path = "item_use.rs"]
 mod item_use;
+mod player_mod;
 #[path = "player_state.rs"]
 mod player_state;
-mod player_mod;
 #[path = "render.rs"]
 mod render;
 

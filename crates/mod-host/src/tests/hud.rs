@@ -98,7 +98,11 @@ fn successful_reload_drops_removed_surfaces_and_rejected_reload_keeps_them() {
     assert!(host.reload_if_changed().is_err());
     assert!(host.hud().is_some());
     assert!(host.crosshair().is_some());
-    std::fs::write(dir.path().join("hud.wat"), source(CONTENT, CROSSHAIR, "", "", false)).unwrap();
+    std::fs::write(
+        dir.path().join("hud.wat"),
+        source(CONTENT, CROSSHAIR, "", "", false),
+    )
+    .unwrap();
     assert!(host.reload_if_changed().unwrap());
     assert!(host.hud().is_none());
     assert!(host.crosshair().is_none());
