@@ -218,6 +218,7 @@ fn personal_panel_app(hud_editor: bool, capture_key: bool) -> (App, Entity) {
                 host: 0,
                 session: 1,
             }),
+            screens: Default::default(),
         })
         .add_systems(Update, prepare_mod_input);
     let mut window = Window {

@@ -1707,8 +1707,9 @@ incomplete: the GUI rect is the bounding box of `root_panel` and every laid-out
 non-full-screen control, not a per-panel union read from the vanilla pack; the
 exclusion list is empty (vanilla status-effect and toast areas are not yet
 reported); an overlay node that meets the GUI rect (the view's drawn bounds while it
-is open) is dropped whole rather than clipped. Not yet verified on a
-rendered frame (the `.local` carriers were absent when it landed). Session data
+is open) is dropped whole rather than clipped. Headless macOS captures at
+1920×1080 verified the overlay, text input beside an open view, and return to
+inventory. Other platforms and scales remain incomplete. Session data
 gaps: no smelting at 1.26.x, brewing skipped, recipes with Molang/complex/deferred
 ingredients dropped. Incomplete as for the spike: process isolation, signing,
 consent, per-mod overlays, rebinding UI. See `docs/modding-spike.md`.
